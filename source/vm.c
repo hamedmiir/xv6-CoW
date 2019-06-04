@@ -15,6 +15,7 @@ char pg_refcount[PHYSTOP >> PGSHIFT]; // array to store refcount
 
 // Set up CPU's kernel segment descriptors.
 // Run once on entry on each CPU.
+
 void
 seginit(void)
 {
@@ -30,6 +31,10 @@ seginit(void)
   c->gdt[SEG_UCODE] = SEG(STA_X|STA_R, 0, 0xffffffff, DPL_USER);
   c->gdt[SEG_UDATA] = SEG(STA_W, 0, 0xffffffff, DPL_USER);
   lgdt(c->gdt, sizeof(c->gdt));
+
+  // Initialize cpu-local storage.
+  cpu = c;
+  proc = 0;
 }
 
 // Return the address of the PTE in page table pgdir
@@ -411,6 +416,84 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
     va = va0 + PGSIZE;
   }
   return 0;
+}
+
+//Page Fault Handling
+void 
+pagefault(uint err_code)
+{
+  uint va = rcr2();
+  uint pa;
+  pte_t *pte;
+  char *mem;
+  if(va >= KERNBASE)
+  {
+    //Mapped to kernel code
+    cprintf("Illegal memory access");
+    proc->killed = 1;
+    return;
+  }
+  if((pte = walkpgdir(proc->pgdir, (void*)va, 0))==0)
+  {
+    //Point to null
+    cprintf("Illegal memory access");
+    proc->killed = 1;
+    return;
+  }
+  if(!(*pte & PTE_U))
+  {
+    // User cannot access
+    cprintf("Illegal memory access");
+    proc->killed = 1;
+    return;
+  }
+    if(!(*pte & PTE_P))
+  {
+    //Not present
+    cprintf("Illegal memory access");
+    proc->killed = 1;
+    return;
+  }
+  if(*pte & PTE_W)
+  {
+    panic("Unknown page fault due to a writable pte");
+  }
+  else
+  {
+    pa = PTE_ADDR(*pte);
+    acquire(&lock);
+    if(pg_refcount[pa >> PGSHIFT] == 1)
+    {
+      release(&lock);
+      *pte |= PTE_W;
+    }
+    else
+    {
+      if(pg_refcount[pa >> PGSHIFT] > 1)
+      {
+        release(&lock);
+        if((mem = kalloc()) == 0)
+        {
+          // Out of memory
+          cprintf("Illegal memory access");
+          proc->killed = 1;
+          return;
+        }
+        memmove(mem, (char*)p2v(pa), PGSIZE);
+        acquire(&lock);
+        pg_refcount[pa >> PGSHIFT] = pg_refcount[pa >> PGSHIFT] - 1;
+        pg_refcount[v2p(mem) >> PGSHIFT] = pg_refcount[v2p(mem) >> PGSHIFT] + 1;
+        release(&lock);
+        *pte = v2p(mem) | PTE_P | PTE_W | PTE_U;
+      }
+      else
+      {
+        release(&lock);
+        panic("Pagefault due to wrong ref count");
+      }
+    }
+    lcr3(v2p(proc->pgdir));
+  }
 }
 
 //PAGEBREAK!

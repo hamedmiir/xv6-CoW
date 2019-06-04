@@ -201,3 +201,4 @@ void            clearpteu(pde_t *pgdir, char *uva);
 
 // Part 5
 int             getNumFreePages();
+void            pagefault(uint err_code);
