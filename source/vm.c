@@ -6,12 +6,12 @@
 #include "mmu.h"
 #include "proc.h"
 #include "elf.h"
+#include "spinlock.h"
 
 extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
-
 //Part 5
-struct spinlock lock;
+struct spinlock lock();
 char pg_refcount[PHYSTOP >> PGSHIFT]; // array to store refcount
 
 // Set up CPU's kernel segment descriptors.
@@ -49,7 +49,7 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
 
   pde = &pgdir[PDX(va)];
   if(*pde & PTE_P){
-    pgtab = (pte_t*)P2V(PTE_ADDR(*pde));
+    pgtab = (pte_t*)p2v(PTE_ADDR(*pde));
   } else {
     if(!alloc || (pgtab = (pte_t*)kalloc()) == 0)
       return 0;
@@ -58,7 +58,7 @@ walkpgdir(pde_t *pgdir, const void *va, int alloc)
     // The permissions here are overly generous, but they can
     // be further restricted by the permissions in the page table
     // entries, if necessary.
-    *pde = V2P(pgtab) | PTE_P | PTE_W | PTE_U;
+    *pde = v2p(pgtab) | PTE_P | PTE_W | PTE_U;
   }
   return &pgtab[PTX(va)];
 }
@@ -99,14 +99,14 @@ mappages(pde_t *pgdir, void *va, uint size, uint pa, int perm)
 //   0..KERNBASE: user memory (text+data+stack+heap), mapped to
 //                phys memory allocated by the kernel
 //   KERNBASE..KERNBASE+EXTMEM: mapped to 0..EXTMEM (for I/O space)
-//   KERNBASE+EXTMEM..data: mapped to EXTMEM..V2P(data)
+//   KERNBASE+EXTMEM..data: mapped to EXTMEM..v2p(data)
 //                for the kernel's instructions and r/o data
-//   data..KERNBASE+PHYSTOP: mapped to V2P(data)..PHYSTOP,
+//   data..KERNBASE+PHYSTOP: mapped to v2p(data)..PHYSTOP,
 //                                  rw data + free physical memory
 //   0xfe000000..0: mapped direct (devices such as ioapic)
 //
 // The kernel allocates physical memory for its heap and for user memory
-// between V2P(end) and the end of physical memory (PHYSTOP)
+// between v2p(end) and the end of physical memory (PHYSTOP)
 // (directly addressable from end..P2V(PHYSTOP)).
 
 // This table defines the kernel's mappings, which are present in
@@ -133,7 +133,7 @@ setupkvm(void)
   if((pgdir = (pde_t*)kalloc()) == 0)
     return 0;
   memset(pgdir, 0, PGSIZE);
-  if (P2V(PHYSTOP) > (void*)DEVSPACE)
+  if (p2v(PHYSTOP) > (void*)DEVSPACE)
     panic("PHYSTOP too high");
   for(k = kmap; k < &kmap[NELEM(kmap)]; k++)
     if(mappages(pgdir, k->virt, k->phys_end - k->phys_start,
@@ -158,7 +158,7 @@ kvmalloc(void)
 void
 switchkvm(void)
 {
-  lcr3(V2P(kpgdir));   // switch to the kernel page table
+  lcr3(v2p(kpgdir));   // switch to the kernel page table
 }
 
 // Switch TSS and h/w page table to correspond to process p.
@@ -182,7 +182,7 @@ switchuvm(struct proc *p)
   // forbids I/O instructions (e.g., inb and outb) from user space
   mycpu()->ts.iomb = (ushort) 0xFFFF;
   ltr(SEG_TSS << 3);
-  lcr3(V2P(p->pgdir));  // switch to process's address space
+  lcr3(v2p(p->pgdir));  // switch to process's address space
   popcli();
 }
 
@@ -195,14 +195,14 @@ inituvm(pde_t *pgdir, char *init, uint sz)
 
   // For keep track of refrence count of pages
   acquire(&lock);
-  pg_refcount[V2P(mem) >> PGSHIFT] = pg_refcount[V2P(mem) >> PGSHIFT] + 1 ;
+  pg_refcount[v2p(mem) >> PGSHIFT] = pg_refcount[v2p(mem) >> PGSHIFT] + 1 ;
   release(&lock);
 
   if(sz >= PGSIZE)
     panic("inituvm: more than a page");
   mem = kalloc();
   memset(mem, 0, PGSIZE);
-  mappages(pgdir, 0, PGSIZE, V2P(mem), PTE_W|PTE_U);
+  mappages(pgdir, 0, PGSIZE, v2p(mem), PTE_W|PTE_U);
   memmove(mem, init, sz);
 }
 
@@ -224,7 +224,7 @@ loaduvm(pde_t *pgdir, char *addr, struct inode *ip, uint offset, uint sz)
       n = sz - i;
     else
       n = PGSIZE;
-    if(readi(ip, P2V(pa), offset+i, n) != n)
+    if(readi(ip, p2v(pa), offset+i, n) != n)
       return -1;
   }
   return 0;
@@ -240,7 +240,7 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 
   // For keep track of refrence count of pages
   acquire(&lock);
-  pg_refcount[V2P(mem) >> PGSHIFT] = pg_refcount[V2P(mem) >> PGSHIFT] +
+  pg_refcount[v2p(mem) >> PGSHIFT] = pg_refcount[v2p(mem) >> PGSHIFT] +
   1 ;
   release(&lock);
 
@@ -258,7 +258,7 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       return 0;
     }
     memset(mem, 0, PGSIZE);
-    if(mappages(pgdir, (char*)a, PGSIZE, V2P(mem), PTE_W|PTE_U) < 0){
+    if(mappages(pgdir, (char*)a, PGSIZE, v2p(mem), PTE_W|PTE_U) < 0){
       cprintf("allocuvm out of memory (2)\n");
       deallocuvm(pgdir, newsz, oldsz);
       kfree(mem);
@@ -282,7 +282,7 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
   acquire(&lock);
   if(--pg_refcount[pa >> PGSHIFT] == 0)
   {
-  char *v = P2V(pa);
+  char *v = p2v(pa);
   kfree(v);
   }
   release(&lock);
@@ -299,7 +299,7 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
       pa = PTE_ADDR(*pte);
       if(pa == 0)
         panic("kfree");
-      char *v = P2V(pa);
+      char *v = p2v(pa);
       kfree(v);
       *pte = 0;
     }
@@ -319,7 +319,7 @@ freevm(pde_t *pgdir)
   deallocuvm(pgdir, KERNBASE, 0);
   for(i = 0; i < NPDENTRIES; i++){
     if(pgdir[i] & PTE_P){
-      char * v = P2V(PTE_ADDR(pgdir[i]));
+      char * v = p2v(PTE_ADDR(pgdir[i]));
       kfree(v);
     }
   }
@@ -365,8 +365,8 @@ copyuvm(pde_t *pgdir, uint sz)
     flags = PTE_FLAGS(*pte);
     if((mem = kalloc()) == 0)
       goto bad;
-    memmove(mem, (char*)P2V(pa), PGSIZE);
-    if(mappages(d, (void*)i, PGSIZE, V2P(mem), flags) < 0) {
+    memmove(mem, (char*)p2v(pa), PGSIZE);
+    if(mappages(d, (void*)i, PGSIZE, v2p(mem), flags) < 0) {
       kfree(mem);
       goto bad;
     }
@@ -390,7 +390,7 @@ uva2ka(pde_t *pgdir, char *uva)
     return 0;
   if((*pte & PTE_U) == 0)
     return 0;
-  return (char*)P2V(PTE_ADDR(*pte));
+  return (char*)p2v(PTE_ADDR(*pte));
 }
 
 // Copy len bytes from p to user address va in page table pgdir.
@@ -419,9 +419,8 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
   return 0;
 }
 
+
 //Page Fault Handling
-
-
 void 
 pagefault(uint err_code)
 {
@@ -490,12 +489,12 @@ pagefault(uint err_code)
           return;
         }
         // copy the contents from the original memory page pointed the virtual address
-        memmove(mem, (char*)P2V(pa), PGSIZE);
+        memmove(mem, (char*)p2v(pa), PGSIZE);
         acquire(&lock);
         pg_refcount[pa >> PGSHIFT] = pg_refcount[pa >> PGSHIFT] - 1;
-        pg_refcount[V2P(mem) >> PGSHIFT] = pg_refcount[V2P(mem) >> PGSHIFT] + 1;
+        pg_refcount[v2p(mem) >> PGSHIFT] = pg_refcount[v2p(mem) >> PGSHIFT] + 1;
         release(&lock);
-        *pte = V2P(mem) | PTE_P | PTE_W | PTE_U;  // point the given page table entry to the new page
+        *pte = v2p(mem) | PTE_P | PTE_W | PTE_U;  // point the given page table entry to the new page
       }
       else
       {
@@ -504,7 +503,7 @@ pagefault(uint err_code)
       }
     }
     // Flush TLB for process since page table entries changed
-    lcr3(V2P(proc->pgdir));
+    lcr3(v2p(proc->pgdir));
   }
 }
 
@@ -538,13 +537,13 @@ cowuvm(pde_t *pgdir, uint sz)
     pg_refcount[pa >> PGSHIFT] = pg_refcount[pa >> PGSHIFT] + 1; // increase reference count of that permanent page.
     release(&lock);
   }
-  lcr3(V2P(pgdir)); // Flush TLB for original process
+  lcr3(v2p(pgdir)); // Flush TLB for original process
   return d;
 
 bad:
   freevm(d);
   // Even though we failed to copy, we should flush TLB, since
   // some entries in the original process page table have been changed
-  lcr3(V2P(pgdir));
+  lcr3(v2p(pgdir));
   return 0;
 }
