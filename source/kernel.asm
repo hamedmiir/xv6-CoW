@@ -7231,7 +7231,7 @@ allocproc(void)
   for(p = ptable.proc; p < &ptable.proc[NPROC]; p++)
 80103990:	81 c3 94 00 00 00    	add    $0x94,%ebx
 80103996:	81 fb 34 65 11 80    	cmp    $0x80116534,%ebx
-8010399c:	0f 83 be 00 00 00    	jae    80103a60 <allocproc+0xf0>
+8010399c:	0f 83 c6 00 00 00    	jae    80103a68 <allocproc+0xf8>
     if(p->state == UNUSED)
 801039a2:	8b 43 0c             	mov    0xc(%ebx),%eax
 801039a5:	85 c0                	test   %eax,%eax
@@ -7264,7 +7264,7 @@ found:
 801039d3:	83 c4 10             	add    $0x10,%esp
 801039d6:	85 c0                	test   %eax,%eax
 801039d8:	89 43 08             	mov    %eax,0x8(%ebx)
-801039db:	0f 84 98 00 00 00    	je     80103a79 <allocproc+0x109>
+801039db:	0f 84 a0 00 00 00    	je     80103a81 <allocproc+0x111>
     return 0;
   }
   sp = p->kstack + KSTACKSIZE;
@@ -7294,10 +7294,10 @@ found:
 80103a01:	e8 da 17 00 00       	call   801051e0 <memset>
   p->context->eip = (uint)forkret;
 80103a06:	8b 43 1c             	mov    0x1c(%ebx),%eax
-  p->creation_time = ticks + createdProcess++;
   p->process_count = process_number;
   process_number++;
   p->lottery_ticket = 50;
+  p->burst_time = 0;
   p->schedQueue = LOTTERY;
   return p;
 80103a09:	83 c4 10             	add    $0x10,%esp
@@ -7307,49 +7307,50 @@ found:
 80103a13:	a1 04 b0 10 80       	mov    0x8010b004,%eax
   p->lottery_ticket = 50;
 80103a18:	c7 43 7c 32 00 00 00 	movl   $0x32,0x7c(%ebx)
-  p->schedQueue = LOTTERY;
-80103a1f:	c7 83 80 00 00 00 02 	movl   $0x2,0x80(%ebx)
+  p->burst_time = 0;
+80103a1f:	c7 83 88 00 00 00 00 	movl   $0x0,0x88(%ebx)
 80103a26:	00 00 00 
+  p->schedQueue = LOTTERY;
+80103a29:	c7 83 80 00 00 00 02 	movl   $0x2,0x80(%ebx)
+80103a30:	00 00 00 
   p->creation_time = ticks + createdProcess++;
-80103a29:	8d 50 01             	lea    0x1(%eax),%edx
-80103a2c:	03 05 80 6d 11 80    	add    0x80116d80,%eax
-80103a32:	89 15 04 b0 10 80    	mov    %edx,0x8010b004
-80103a38:	89 83 8c 00 00 00    	mov    %eax,0x8c(%ebx)
+80103a33:	8d 50 01             	lea    0x1(%eax),%edx
+80103a36:	03 05 80 6d 11 80    	add    0x80116d80,%eax
+80103a3c:	89 15 04 b0 10 80    	mov    %edx,0x8010b004
+80103a42:	89 83 8c 00 00 00    	mov    %eax,0x8c(%ebx)
   p->process_count = process_number;
-80103a3e:	a1 e0 3f 11 80       	mov    0x80113fe0,%eax
-80103a43:	89 83 90 00 00 00    	mov    %eax,0x90(%ebx)
+80103a48:	a1 e0 3f 11 80       	mov    0x80113fe0,%eax
+80103a4d:	89 83 90 00 00 00    	mov    %eax,0x90(%ebx)
   process_number++;
-80103a49:	83 c0 01             	add    $0x1,%eax
-80103a4c:	a3 e0 3f 11 80       	mov    %eax,0x80113fe0
+80103a53:	83 c0 01             	add    $0x1,%eax
+80103a56:	a3 e0 3f 11 80       	mov    %eax,0x80113fe0
 }
-80103a51:	89 d8                	mov    %ebx,%eax
-80103a53:	8b 5d fc             	mov    -0x4(%ebp),%ebx
-80103a56:	c9                   	leave  
-80103a57:	c3                   	ret    
-80103a58:	90                   	nop
-80103a59:	8d b4 26 00 00 00 00 	lea    0x0(%esi,%eiz,1),%esi
+80103a5b:	89 d8                	mov    %ebx,%eax
+80103a5d:	8b 5d fc             	mov    -0x4(%ebp),%ebx
+80103a60:	c9                   	leave  
+80103a61:	c3                   	ret    
+80103a62:	8d b6 00 00 00 00    	lea    0x0(%esi),%esi
   release(&ptable.lock);
-80103a60:	83 ec 0c             	sub    $0xc,%esp
+80103a68:	83 ec 0c             	sub    $0xc,%esp
   return 0;
-80103a63:	31 db                	xor    %ebx,%ebx
+80103a6b:	31 db                	xor    %ebx,%ebx
   release(&ptable.lock);
-80103a65:	68 00 40 11 80       	push   $0x80114000
-80103a6a:	e8 21 17 00 00       	call   80105190 <release>
+80103a6d:	68 00 40 11 80       	push   $0x80114000
+80103a72:	e8 19 17 00 00       	call   80105190 <release>
 }
-80103a6f:	89 d8                	mov    %ebx,%eax
+80103a77:	89 d8                	mov    %ebx,%eax
   return 0;
-80103a71:	83 c4 10             	add    $0x10,%esp
+80103a79:	83 c4 10             	add    $0x10,%esp
 }
-80103a74:	8b 5d fc             	mov    -0x4(%ebp),%ebx
-80103a77:	c9                   	leave  
-80103a78:	c3                   	ret    
+80103a7c:	8b 5d fc             	mov    -0x4(%ebp),%ebx
+80103a7f:	c9                   	leave  
+80103a80:	c3                   	ret    
     p->state = UNUSED;
-80103a79:	c7 43 0c 00 00 00 00 	movl   $0x0,0xc(%ebx)
+80103a81:	c7 43 0c 00 00 00 00 	movl   $0x0,0xc(%ebx)
     return 0;
-80103a80:	31 db                	xor    %ebx,%ebx
-80103a82:	eb cd                	jmp    80103a51 <allocproc+0xe1>
-80103a84:	8d b6 00 00 00 00    	lea    0x0(%esi),%esi
-80103a8a:	8d bf 00 00 00 00    	lea    0x0(%edi),%edi
+80103a88:	31 db                	xor    %ebx,%ebx
+80103a8a:	eb cf                	jmp    80103a5b <allocproc+0xeb>
+80103a8c:	8d 74 26 00          	lea    0x0(%esi,%eiz,1),%esi
 
 80103a90 <forkret>:
 
@@ -7420,6 +7421,11 @@ forkret(void)
 80103b01:	89 e5                	mov    %esp,%ebp
 80103b03:	56                   	push   %esi
 80103b04:	53                   	push   %ebx
+
+static inline uint
+readeflags(void)
+{
+  uint eflags;
   asm volatile("pushfl; popl %0" : "=r" (eflags));
 80103b05:	9c                   	pushf  
 80103b06:	58                   	pop    %eax
@@ -8782,7 +8788,7 @@ SJFSched(void)
   struct proc *p;
  
   int shortestProcessSelected = 0;
-  struct proc *shortestTime = 0; //process that come earlier
+  struct proc *shortestTime = 0; //process that finish earlier
 80104671:	31 c0                	xor    %eax,%eax
   
   
@@ -9662,6 +9668,11 @@ scheduler(void)
 80104e21:	e8 6a 03 00 00       	call   80105190 <release>
     sti();
 80104e26:	83 c4 10             	add    $0x10,%esp
+}
+
+static inline void
+sti(void)
+{
   asm volatile("sti");
 80104e29:	fb                   	sti    
     acquire(&ptable.lock);

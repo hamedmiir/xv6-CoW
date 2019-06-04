@@ -142,3 +142,9 @@ void sys_show_processes_scheduling()
 {
   show_all_processes_scheduling();
 }
+
+int
+sys_getNumFreePages(void)
+{
+  return getNumFreePages;
+}

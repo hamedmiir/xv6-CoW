@@ -21,6 +21,7 @@ struct {
   struct spinlock lock;
   int use_lock;
   struct run *freelist;
+  int numFreePages;
 } kmem;
 
 // Initialization happens in two phases.
@@ -34,6 +35,7 @@ kinit1(void *vstart, void *vend)
   initlock(&kmem.lock, "kmem");
   kmem.use_lock = 0;
   freerange(vstart, vend);
+  kmem.numFreePages = 0;
 }
 
 void
@@ -60,7 +62,8 @@ void
 kfree(char *v)
 {
   struct run *r;
-
+  kmem.numFreePages = kmem.numFreePages + 1; // A new node is added to freelist 
+                                            //so increase the number of free pages
   if((uint)v % PGSIZE || v < end || V2P(v) >= PHYSTOP)
     panic("kfree");
 
@@ -83,7 +86,8 @@ char*
 kalloc(void)
 {
   struct run *r;
-
+  kmem.numFreePages = kmem.numFreePages - 1 ; // A node is popped out from the freelist
+                                              //so decrease the number of free pages.
   if(kmem.use_lock)
     acquire(&kmem.lock);
   r = kmem.freelist;
@@ -94,3 +98,14 @@ kalloc(void)
   return (char*)r;
 }
 
+// Returns the number of free pages.
+int
+getNumFreePages(void)
+{
+if(kmem.use_lock)
+acquire(&kmem.lock);
+int r = kmem.numFreePages;
+if(kmem.use_lock)
+release(&kmem.lock);
+return (r);
+}

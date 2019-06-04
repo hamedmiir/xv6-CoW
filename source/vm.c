@@ -9,6 +9,9 @@
 
 extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
+//Part 5
+struct spinlock lock;
+char pg_refcount[PHYSTOP >> PGSHIFT]; // array to store refcount
 
 // Set up CPU's kernel segment descriptors.
 // Run once on entry on each CPU.
@@ -184,6 +187,11 @@ inituvm(pde_t *pgdir, char *init, uint sz)
 {
   char *mem;
 
+  // For keep track of refrence count of pages
+  acquire(&lock);
+  pg_refcount[v2p(mem) >> PGSHIFT] = pg_refcount[v2p(mem) >> PGSHIFT] + 1 ;
+  release(&lock);
+
   if(sz >= PGSIZE)
     panic("inituvm: more than a page");
   mem = kalloc();
@@ -224,6 +232,12 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
   char *mem;
   uint a;
 
+  // For keep track of refrence count of pages
+  acquire(&lock);
+  pg_refcount[v2p(mem) >> PGSHIFT] = pg_refcount[v2p(mem) >> PGSHIFT] +
+  1 ;
+  release(&lock);
+
   if(newsz >= KERNBASE)
     return 0;
   if(newsz < oldsz)
@@ -257,6 +271,15 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 {
   pte_t *pte;
   uint a, pa;
+
+  // if no other page table is pointing to this page remove it and free the page
+  acquire(&lock);
+  if(--pg_refcount[pa >> PGSHIFT] == 0)
+  {
+  char *v = p2v(pa);
+  kfree(v);
+  }
+  release(&lock);
 
   if(newsz >= oldsz)
     return oldsz;
@@ -319,6 +342,11 @@ copyuvm(pde_t *pgdir, uint sz)
   pte_t *pte;
   uint pa, i, flags;
   char *mem;
+
+  //when a process is forked, icrease refrence count of that page:
+  acquire(&lock);
+  pg_refcount[pa >> PGSHIFT] = pg_refcount[pa >> PGSHIFT] + 1; 
+  release(&lock);
 
   if((d = setupkvm()) == 0)
     return 0;

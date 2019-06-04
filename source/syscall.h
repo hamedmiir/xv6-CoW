@@ -28,3 +28,5 @@
 #define SYS_set_lottery_ticket 26
 #define SYS_set_sched_queue 27
 #define SYS_show_processes_scheduling 28
+//Part5
+#define SYS_getNumFreePages 29
