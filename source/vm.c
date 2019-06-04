@@ -9,6 +9,7 @@
 
 extern char data[];  // defined by kernel.ld
 pde_t *kpgdir;  // for use in scheduler()
+
 //Part 5
 struct spinlock lock;
 char pg_refcount[PHYSTOP >> PGSHIFT]; // array to store refcount
@@ -194,7 +195,7 @@ inituvm(pde_t *pgdir, char *init, uint sz)
 
   // For keep track of refrence count of pages
   acquire(&lock);
-  pg_refcount[v2p(mem) >> PGSHIFT] = pg_refcount[v2p(mem) >> PGSHIFT] + 1 ;
+  pg_refcount[V2P(mem) >> PGSHIFT] = pg_refcount[V2P(mem) >> PGSHIFT] + 1 ;
   release(&lock);
 
   if(sz >= PGSIZE)
@@ -239,7 +240,7 @@ allocuvm(pde_t *pgdir, uint oldsz, uint newsz)
 
   // For keep track of refrence count of pages
   acquire(&lock);
-  pg_refcount[v2p(mem) >> PGSHIFT] = pg_refcount[v2p(mem) >> PGSHIFT] +
+  pg_refcount[V2P(mem) >> PGSHIFT] = pg_refcount[V2P(mem) >> PGSHIFT] +
   1 ;
   release(&lock);
 
@@ -281,7 +282,7 @@ deallocuvm(pde_t *pgdir, uint oldsz, uint newsz)
   acquire(&lock);
   if(--pg_refcount[pa >> PGSHIFT] == 0)
   {
-  char *v = p2v(pa);
+  char *v = P2V(pa);
   kfree(v);
   }
   release(&lock);
@@ -419,9 +420,12 @@ copyout(pde_t *pgdir, uint va, void *p, uint len)
 }
 
 //Page Fault Handling
+
+
 void 
 pagefault(uint err_code)
 {
+  // get the faulting virtual address from the CR2 register
   uint va = rcr2();
   uint pa;
   pte_t *pte;
@@ -429,28 +433,32 @@ pagefault(uint err_code)
   if(va >= KERNBASE)
   {
     //Mapped to kernel code
-    cprintf("Illegal memory access");
+    cprintf("Illegal memory access on cpu %d addr 0x%x, kill proc %s with pid %d\n",
+                                            cpu->apicid, va, proc->name, proc->pid);
     proc->killed = 1;
     return;
   }
   if((pte = walkpgdir(proc->pgdir, (void*)va, 0))==0)
   {
     //Point to null
-    cprintf("Illegal memory access");
+    cprintf("Illegal memory access on cpu %d addr 0x%x, kill proc %s with pid %d\n",
+                                            cpu->apicid, va, proc->name, proc->pid);
     proc->killed = 1;
     return;
   }
   if(!(*pte & PTE_U))
   {
     // User cannot access
-    cprintf("Illegal memory access");
+    cprintf("Illegal memory access on cpu %d addr 0x%x, kill proc %s with pid %d\n",
+                                            cpu->apicid, va, proc->name, proc->pid);
     proc->killed = 1;
     return;
   }
     if(!(*pte & PTE_P))
   {
     //Not present
-    cprintf("Illegal memory access");
+    cprintf("Illegal memory access on cpu %d addr 0x%x, kill proc %s with pid %d\n",
+                                            cpu->apicid, va, proc->name, proc->pid);
     proc->killed = 1;
     return;
   }
@@ -460,15 +468,17 @@ pagefault(uint err_code)
   }
   else
   {
+    // get the physical address from the  given page table entry
     pa = PTE_ADDR(*pte);
     acquire(&lock);
     if(pg_refcount[pa >> PGSHIFT] == 1)
     {
       release(&lock);
-      *pte |= PTE_W;
+      *pte |= PTE_W;  // remove the read-only restriction on the trapping page
     }
     else
     {
+      // Current process is the first one that tries to write to this page
       if(pg_refcount[pa >> PGSHIFT] > 1)
       {
         release(&lock);
@@ -479,12 +489,13 @@ pagefault(uint err_code)
           proc->killed = 1;
           return;
         }
-        memmove(mem, (char*)p2v(pa), PGSIZE);
+        // copy the contents from the original memory page pointed the virtual address
+        memmove(mem, (char*)P2V(pa), PGSIZE);
         acquire(&lock);
         pg_refcount[pa >> PGSHIFT] = pg_refcount[pa >> PGSHIFT] - 1;
-        pg_refcount[v2p(mem) >> PGSHIFT] = pg_refcount[v2p(mem) >> PGSHIFT] + 1;
+        pg_refcount[V2P(mem) >> PGSHIFT] = pg_refcount[V2P(mem) >> PGSHIFT] + 1;
         release(&lock);
-        *pte = v2p(mem) | PTE_P | PTE_W | PTE_U;
+        *pte = V2P(mem) | PTE_P | PTE_W | PTE_U;  // point the given page table entry to the new page
       }
       else
       {
@@ -492,14 +503,7 @@ pagefault(uint err_code)
         panic("Pagefault due to wrong ref count");
       }
     }
-    lcr3(v2p(proc->pgdir));
+    // Flush TLB for process since page table entries changed
+    lcr3(V2P(proc->pgdir));
   }
 }
-
-//PAGEBREAK!
-// Blank page.
-//PAGEBREAK!
-// Blank page.
-//PAGEBREAK!
-// Blank page.
-
