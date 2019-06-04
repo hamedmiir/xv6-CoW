@@ -507,3 +507,44 @@ pagefault(uint err_code)
     lcr3(V2P(proc->pgdir));
   }
 }
+
+
+// Given a parent process's page table
+//Create a copy of it for a child
+pde_t*
+cowuvm(pde_t *pgdir, uint sz)
+{
+  pde_t *d;
+  pte_t *pte;
+  uint pa, i, flags;
+
+  if((d = setupkvm()) == 0)
+    return 0;
+
+  for(i = 0; i < sz; i += PGSIZE){
+    if((pte = walkpgdir(pgdir, (void *) i, 0)) == 0)
+      panic("cowuvm: pte should exist");
+    if(!(*pte & PTE_P))
+      panic("copyuvm: page not present");
+
+    // make the permissions for the parent_page read only
+    *pte &= ~PTE_W;
+    pa = PTE_ADDR(*pte);
+    flags = PTE_FLAGS(*pte);
+
+    if(mappages(d, (void*)i, PGSIZE, pa, flags) < 0)
+      goto bad;
+    acquire(&lock);
+    pg_refcount[pa >> PGSHIFT] = pg_refcount[pa >> PGSHIFT] + 1; // increase reference count of that permanent page.
+    release(&lock);
+  }
+  lcr3(V2P(pgdir)); // Flush TLB for original process
+  return d;
+
+bad:
+  freevm(d);
+  // Even though we failed to copy, we should flush TLB, since
+  // some entries in the original process page table have been changed
+  lcr3(V2P(pgdir));
+  return 0;
+}
